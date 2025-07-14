@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>因果推断趣味科普动画 (应用增强版)</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background-color: #f0f2f5;
+        }
+        .scene-text {
+            transition: opacity 0.5s ease-in-out;
+        }
+        .control-button {
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        .control-button:hover {
+            transform: translateY(-2px);
+        }
+        .control-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .causal-node {
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+        .causal-node:hover {
+            transform: scale(1.05);
+        }
+        .causal-link {
+            stroke-width: 3;
+            marker-end: url(#arrowhead);
+            transition: opacity 0.5s ease;
+        }
+        .correlation-link {
+            stroke-width: 4px;
+            stroke-dasharray: 8 8;
+            transition: opacity 0.5s ease;
+        }
+        .app-text {
+            transition: opacity 0.5s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-6 md:p-8">
+        <h1 class="text-2xl md:text-3xl font-bold text-center text-slate-800 mb-2">相关不等于因果：因果推断</h1>
+        <p class="text-center text-slate-500 mb-6"></p>
+
+        <!-- Animation Canvas -->
+        <div id="animation-canvas" class="relative w-full aspect-video bg-slate-50 rounded-lg overflow-hidden border border-slate-200">
+            <svg id="main-svg" width="100%" height="100%"></svg>
+        </div>
+
+        <!-- Explanatory Text -->
+        <div class="mt-6 text-center min-h-[8em] flex items-center justify-center px-4">
+            <p id="scene-text" class="scene-text text-slate-700 text-lg leading-relaxed md:text-xl"></p>
+        </div>
+
+        <!-- Navigation Controls -->
+        <div class="flex justify-center items-center space-x-4 mt-6">
+            <button id="prev-btn" class="control-button bg-slate-300 text-slate-700 font-bold py-2 px-6 rounded-full shadow-md hover:bg-slate-400">上一步</button>
+            <span id="scene-indicator" class="text-slate-500 font-mono">1 / 6</span>
+            <button id="next-btn" class="control-button bg-blue-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:bg-blue-600">下一步</button>
+        </div>
+    </div>
+    
+    <footer class="text-center mt-8 text-slate-400 text-sm">
+        <p></p>
+    </footer>
+
+    <script>
+        // --- Basic Setup ---
+        const svg = d3.select("#main-svg");
+        const width = svg.node().getBoundingClientRect().width;
+        const height = svg.node().getBoundingClientRect().height;
+        const sceneText = d3.select("#scene-text");
+        const nextBtn = d3.select("#next-btn");
+        const prevBtn = d3.select("#prev-btn");
+        const sceneIndicator = d3.select("#scene-indicator");
+
+        let currentScene = 0;
+        let appInterval; // To control the interval in the last scene
+
+        // --- Arrowhead definition for causal links ---
+        svg.append('defs').append('marker')
+            .attr('id', 'arrowhead')
+            .attr('viewBox', '-0 -5 10 10')
+            .attr('refX', 8)
+            .attr('refY', 0)
+            .attr('orient', 'auto')
+            .attr('markerWidth', 8)
+            .attr('markerHeight', 8)
+            .attr('xoverflow', 'visible')
+            .append('svg:path')
+            .attr('d', 'M 0,-5 L 10 ,0 L 0,5')
+            .attr('fill', '#94a3b8')
+            .style('stroke','none');
+
+        // --- Scene Definitions ---
+        const scenes = [
+            // Scene 1: The Illusion of Causation
+            {
+                text: "夏天到了，我们发现一个奇怪的现象：冰淇淋卖得越多，溺水的人也越多。难道吃冰淇淋会导致溺水吗？",
+                action: () => {
+                    svg.selectAll("*").remove(); // Clear previous scene
+                    const g = svg.append("g");
+                    const data = [{ label: "冰淇淋销量", icon: "🍦", x: width * 0.25, y: height * 0.5 }, { label: "溺水人数", icon: "🏊", x: width * 0.75, y: height * 0.5 }];
+                    const nodes = g.selectAll(".node").data(data).enter().append("g").attr("class", "node").attr("transform", d => `translate(${d.x}, ${d.y})`);
+                    nodes.append("rect").attr("x", -60).attr("y", -40).attr("width", 120).attr("height", 80).attr("rx", 15).attr("fill", "white").attr("stroke", "#e2e8f0").attr("stroke-width", 2);
+                    nodes.append("text").text(d => d.icon).attr("font-size", "40px").attr("text-anchor", "middle").attr("y", 5);
+                    nodes.append("text").text(d => d.label).attr("text-anchor", "middle").attr("y", 30).style("font-size", "14px");
+                    const correlationLink = g.append("line").attr("class", "correlation-link").attr("x1", data[0].x + 60).attr("y1", data[0].y).attr("x2", data[1].x - 60).attr("y2", data[1].y).attr("stroke", "#f87171");
+                    correlationLink.style("opacity", 0).transition().duration(500).delay(500).style("opacity", 1);
+                    g.append("text").text("仅仅是相关 →").attr("x", data[0].x + 70).attr("y", data[0].y - 10).attr("fill", "#f87171").style("opacity", 0).transition().duration(500).delay(800).style("opacity", 1);
+                }
+            },
+            // Scene 2: Unmasking the Confounder
+            {
+                text: "当然不是！这只是相关性，不是因果关系。真正的原因是背后隐藏的“混杂因素”——炎热的天气。",
+                action: () => {
+                    svg.selectAll("*").remove();
+                    const g = svg.append("g");
+                    svg.select("defs").html('<marker id="arrowhead" viewBox="-0 -5 10 10" refX="8" refY="0" orient="auto" markerWidth="8" markerHeight="8" xoverflow="visible"><path d="M 0,-5 L 10 ,0 L 0,5" fill="#94a3b8" style="stroke:none;"></path></marker>');
+                    const nodesData = [{ id: 1, label: "冰淇淋销量", icon: "🍦", x: width * 0.25, y: height * 0.7 }, { id: 2, label: "溺水人数", icon: "🏊", x: width * 0.75, y: height * 0.7 }, { id: 3, label: "炎热天气", icon: "☀️", x: width * 0.5, y: height * 0.25 }];
+                    const correlationLink = g.append("line").attr("class", "correlation-link").attr("x1", nodesData[0].x + 60).attr("y1", nodesData[0].y).attr("x2", nodesData[1].x - 60).attr("y2", nodesData[1].y).attr("stroke", "#f87171").style("opacity", 1);
+                    correlationLink.transition().duration(500).delay(1000).style("opacity", 0).remove();
+                    const nodes = g.selectAll(".node").data(nodesData).enter().append("g").attr("class", "causal-node").attr("transform", d => `translate(${d.x}, ${d.y})`);
+                    nodes.append("rect").attr("x", -60).attr("y", -40).attr("width", 120).attr("height", 80).attr("rx", 15).attr("fill", "white").attr("stroke", "#e2e8f0").attr("stroke-width", 2);
+                    nodes.append("text").text(d => d.icon).attr("font-size", "40px").attr("text-anchor", "middle").attr("y", 5);
+                    nodes.append("text").text(d => d.label).attr("text-anchor", "middle").attr("y", 30).style("font-size", "14px");
+                    d3.select(nodes.nodes()[2]).style("opacity", 0).transition().duration(500).delay(500).style("opacity", 1);
+                    const linksData = [{ source: nodesData[2], target: nodesData[0] }, { source: nodesData[2], target: nodesData[1] }];
+                    g.selectAll(".causal-link").data(linksData).enter().insert("line", ".causal-node").attr("class", "causal-link").attr("x1", d => d.source.x).attr("y1", d => d.source.y + 40).attr("x2", d => d.target.x).attr("y2", d => d.target.y - 40).attr("stroke", "#94a3b8").style("opacity", 0).transition().duration(800).delay(1500).style("opacity", 1);
+                }
+            },
+            // Scene 3: Drawing the Causal Map
+            {
+                text: "为了理清思路，我们可以画一张‘因果关系图’。这张图清晰地显示，天气才是根本原因，它同时影响了冰淇淋销量和溺水人数。",
+                action: () => {
+                    scenes[1].action(); // Reuse previous scene's drawing logic
+                    setTimeout(() => {
+                        const g = svg.select("g");
+                        const nodesData = g.selectAll(".causal-node").data();
+                        const fakeLink = g.append("line").attr("class", "correlation-link").attr("x1", nodesData[0].x + 60).attr("y1", nodesData[0].y).attr("x2", nodesData[1].x - 60).attr("y2", nodesData[1].y).attr("stroke", "#cbd5e1");
+                        const cross = g.append("text").text("❌").attr("x", width/2).attr("y", nodesData[0].y + 10).attr("font-size", "30px").attr("text-anchor", "middle").attr("fill", "#ef4444");
+                        fakeLink.style("opacity", 0).transition().duration(500).style("opacity", 1);
+                        cross.style("opacity", 0).transition().duration(500).style("opacity", 1);
+                    }, 500);
+                }
+            },
+            // Scene 4: Conditional Independence
+            {
+                text: "关键一步：实现“条件独立性”。通过‘控制’天气这个变量（比如只看35°C的日子），我们就阻断了它带来的混杂影响。此时，冰淇淋和溺水这两个变量就变得相互独立了。",
+                action: () => {
+                    scenes[2].action(); // Reuse previous scene's drawing logic
+                    setTimeout(() => {
+                        const g = svg.select("g");
+                        const nodesData = g.selectAll(".causal-node").data();
+                        const confounderNode = d3.select(g.selectAll(".causal-node").nodes()[2]);
+                        confounderNode.append("rect").attr("class", "control-box").attr("x", -70).attr("y", -50).attr("width", 140).attr("height", 100).attr("rx", 20).attr("fill", "none").attr("stroke", "#60a5fa").attr("stroke-width", 4).attr("stroke-dasharray", "10 5").style("opacity", 0).transition().duration(800).style("opacity", 1);
+                        g.append("text").text("控制这个变量！").attr("x", nodesData[2].x + 80).attr("y", nodesData[2].y).attr("fill", "#60a5fa").style("font-weight", "bold").style("opacity", 0).transition().duration(800).style("opacity", 1);
+                    }, 1000);
+                }
+            },
+            // Scene 5: The "What If" Experiment
+            {
+                text: "因果推断的最终目标是回答“what if”的问题。比如，我们主动‘干预’，在大冬天强制所有人吃冰淇淋，溺水人数会增加吗？这个‘反事实’思考帮助我们验证了真实的因果路径。",
+                action: () => {
+                    svg.selectAll("*").remove();
+                    const g = svg.append("g");
+                    g.append("rect").attr("width", width).attr("height", height).attr("fill", "#e0f2fe");
+                    for(let i=0; i<50; i++) { g.append("text").text("❄️").attr("x", Math.random() * width).attr("y", Math.random() * height).attr("font-size", `${Math.random() * 20 + 10}px`).style("opacity", 0.7); }
+                    const iceCreamNode = g.append("g").attr("transform", `translate(${width*0.3}, ${height*0.6})`);
+                    iceCreamNode.append("text").text("🍦").attr("font-size", "60px").attr("text-anchor", "middle");
+                    iceCreamNode.append("text").text("干预：强制吃冰淇淋").attr("y", 50).attr("text-anchor", "middle").style("font-weight", "bold");
+                    const interventionArrow = g.append("path").attr("d", `M ${width*0.4} ${height*0.6} C ${width*0.5} ${height*0.4}, ${width*0.6} ${height*0.8}, ${width*0.7} ${height*0.6}`).attr("stroke", "#fca5a5").attr("stroke-width", 4).attr("fill", "none").attr("stroke-dasharray", function() { return this.getTotalLength() }).attr("stroke-dashoffset", function() { return this.getTotalLength() }).transition().duration(1000).delay(500).attr("stroke-dashoffset", 0);
+                    const drowningNode = g.append("g").attr("transform", `translate(${width*0.7}, ${height*0.6})`);
+                    drowningNode.append("text").text("🏊").attr("font-size", "60px").attr("text-anchor", "middle");
+                    drowningNode.append("text").text("结果：溺水人数不变").attr("y", 50).attr("text-anchor", "middle").style("font-weight", "bold");
+                    drowningNode.select("text:last-child").style("opacity", 0).transition().delay(1500).duration(500).style("opacity", 1);
+                }
+            },
+            // Scene 6: Real-World Applications
+            {
+                text: "因果推断的应用无处不在，它帮助我们透过数据表象，找到事物之间真实的因果联系，从而做出更科学的决策。",
+                action: () => {
+                    svg.selectAll("*").remove();
+                    const g = svg.append("g");
+                    const apps = [
+                        { name: "环境政策评估", icon: "🌳", question: "某地推行限塑令后，海洋垃圾真的减少了吗？还是因为同时期经济下行，导致整体消费降低？" },
+                        { name: "产品优化 (A/B测试)", icon: "📊", question: "网站改版后用户增长了，是新设计的功劳，还是因为恰好遇上了季节性推广活动？" },
+                        { name: "医疗研究", icon: "💊", question: "服用新药的病人康复更快，是药效所致，还是因为入组的病人本身就更年轻、更健康？" }
+                    ];
+                    
+                    let appIndex = 0;
+                    
+                    function showApp(index) {
+                        g.selectAll("*").remove(); // Clear previous app
+                        
+                        const app = apps[index];
+                        const appGroup = g.append("g").attr("class", "app-group").style("opacity", 0);
+
+                        appGroup.append("text")
+                            .attr("x", width / 2)
+                            .attr("y", height * 0.3)
+                            .attr("text-anchor", "middle")
+                            .attr("font-size", "80px")
+                            .text(app.icon);
+
+                        appGroup.append("text")
+                            .attr("x", width / 2)
+                            .attr("y", height * 0.5)
+                            .attr("text-anchor", "middle")
+                            .style("font-size", "22px")
+                            .style("font-weight", "bold")
+                            .attr("fill", "#334155")
+                            .text(app.name);
+                        
+                        // Wrap text for the question
+                        const questionText = appGroup.append("text")
+                            .attr("x", width / 2)
+                            .attr("y", height * 0.65)
+                            .attr("text-anchor", "middle")
+                            .style("font-size", "16px")
+                            .attr("fill", "#475569");
+                        
+                        const words = app.question.split(/\s+/);
+                        let line = '';
+                        const lineHeight = 1.5; // ems
+                        let tspan = questionText.append('tspan').attr('x', width / 2).attr('dy', '0em');
+                        
+                        words.forEach(word => {
+                            const testLine = line + word + ' ';
+                            tspan.text(testLine);
+                            if (tspan.node().getComputedTextLength() > width * 0.8) {
+                                tspan.text(line);
+                                line = word + ' ';
+                                tspan = questionText.append('tspan').attr('x', width/2).attr('dy', `${lineHeight}em`).text(line);
+                            } else {
+                                line = testLine;
+                            }
+                        });
+                        tspan.text(line);
+
+                        appGroup.transition().duration(500).style("opacity", 1)
+                            .transition().delay(3500).duration(500).style("opacity", 0);
+                    }
+                    
+                    showApp(appIndex);
+                    appInterval = setInterval(() => {
+                        appIndex = (appIndex + 1) % apps.length;
+                        showApp(appIndex);
+                    }, 4500);
+                }
+            }
+        ];
+
+        // --- Control Logic ---
+        function runScene(sceneIndex) {
+            // Clear interval from the last scene if it exists
+            if (appInterval) {
+                clearInterval(appInterval);
+                appInterval = null;
+            }
+
+            sceneText.style("opacity", 0);
+            
+            setTimeout(() => {
+                scenes[sceneIndex].action();
+                sceneText.html(scenes[sceneIndex].text);
+                sceneText.style("opacity", 1);
+            }, 500);
+
+            updateControls();
+        }
+
+        function updateControls() {
+            sceneIndicator.text(`${currentScene + 1} / ${scenes.length}`);
+            prevBtn.property("disabled", currentScene === 0);
+            nextBtn.property("disabled", currentScene === scenes.length - 1);
+        }
+
+        nextBtn.on("click", () => {
+            if (currentScene < scenes.length - 1) {
+                currentScene++;
+                runScene(currentScene);
+            }
+        });
+
+        prevBtn.on("click", () => {
+            if (currentScene > 0) {
+                currentScene--;
+                runScene(currentScene);
+            }
+        });
+
+        // --- Initial Run ---
+        runScene(0);
+
+    </script>
+</body>
+</html>
